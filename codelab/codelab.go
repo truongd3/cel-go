@@ -1,19 +1,3 @@
-// Copyright 2020 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// This file contains code that demonstrates common CEL features.
-// This code is intended for use with the CEL Codelab: go/cel-codelab-go
 package main
 
 import (
@@ -40,32 +24,74 @@ import (
 )
 
 func main() {
-	exercise1()
-	exercise2()
+	// exercise1()
+	// exercise2()
 	exercise3()
-	exercise4()
-	exercise5()
-	exercise6()
-	exercise7()
-	exercise8()
+	// exercise4()
+	// exercise5()
+	// exercise6()
+	// exercise7()
+	// exercise8()
 }
 
 // exercise1 evaluates a simple literal expression: "Hello, World!"
-//
 // Compile, eval, profit!
 func exercise1() {
 	fmt.Println("=== Exercise 1: Hello World ===\n")
-
+	// Create the standard environment
+	env, err := cel.NewEnv()
+	if err != nil {
+		glog.Exitf("env error: %v", err)
+	}
+	// Check if expression compiles and returns a String
+	ast, iss := env.Parse(`"Hello, World!"`)
+	// Report syntactic errors, if present.
+	if iss.Err() != nil {
+		glog.Exit(iss.Err())
+	}
+	// Type-check the expression for correctness
+	checked, iss := env.Check(ast)
+	// Report semantic errors, if present
+	if iss.Err() != nil {
+		glog.Exit(iss.Err())
+	}
+	// Check the output type is a string
+	if !reflect.DeepEqual(checked.OutputType(), cel.StringType) {
+		glog.Exitf(
+			"Got %v, wanted %v output type",
+			checked.OutputType(), cel.StringType,
+		)
+	}
+	// Plan the program.
+	program, err := env.Program(checked)
+	if err != nil {
+		glog.Exitf("program error: %v", err)
+	}
+	// Evaluate the program without any additional arguments.
+	eval(program, cel.NoVars())
 	fmt.Println()
 }
 
 // exercise2 shows how to declare and use variables in expressions.
-//
 // Given a `request` of type `google.rpc.context.AttributeContext.Request`
 // determine whether a specific auth claim is set.
 func exercise2() {
 	fmt.Println("=== Exercise 2: Variables ===\n")
+	env, err := cel.NewEnv(
+		cel.Types(&rpcpb.AttributeContext_Request{}),
+		cel.Variable("request",
+			cel.ObjectType("google.rpc.context.AttributeContext.Request"),
+		),
+	)
+	if err != nil {
+		glog.Exit(err)
+	}
+	ast := compile(env, `request.auth.claims.group == 'admin'`, cel.BoolType)
+	program, _ := env.Program(ast)
 
+	// Evaluate a request object that sets the proper group claim.
+	claims := map[string]string{"group": "admin"}
+	eval(program, request(auth("user:me@acme.co", claims), time.Now()))
 	fmt.Println()
 }
 
@@ -80,8 +106,21 @@ func exercise2() {
 // request a second time at midnight. Observe the difference in output.
 func exercise3() {
 	fmt.Println("=== Exercise 3: Logical AND/OR ===\n")
+	env, _ := cel.NewEnv(
+		cel.Types(&rpcpb.AttributeContext_Request{}),
+		cel.Variable("request",
+			cel.ObjectType("google.rpc.context.AttributeContext.Request"),
+		),
+	)
 
-	fmt.Println()
+	ast := compile(env,
+		`request.auth.claims.group == 'admin'
+		  || request.auth.principal == 'user:me@acme.co'`,
+		cel.BoolType)
+	program, _ := env.Program(ast)
+
+	emptyClaims := map[string]string{}
+	eval(program, request(auth("user:me@acme.co", emptyClaims), time.Now())) // correct email
 }
 
 // exercise4 demonstrates how to extend CEL with custom functions.
@@ -160,8 +199,7 @@ func compile(env *cel.Env, expr string, celType *cel.Type) *cel.Ast {
 // eval will evaluate a given program `prg` against a set of variables `vars`
 // and return the output, eval details (optional), or error that results from
 // evaluation.
-func eval(prg cel.Program,
-	vars any) (out ref.Val, det *cel.EvalDetails, err error) {
+func eval(prg cel.Program, vars any) (out ref.Val, det *cel.EvalDetails, err error) {
 	varMap, isMap := vars.(map[string]any)
 	fmt.Println("------ input ------")
 	if !isMap {
